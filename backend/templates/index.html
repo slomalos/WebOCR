@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Рабочее место эксперта ЕГЭ</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f4f6f9; }
+        .document-card { 
+            background: #fff; 
+            border-radius: 12px; 
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05); 
+            margin-bottom: 30px;
+            overflow: hidden;
+            border: 1px solid #e1e5eb;
+        }
+        .card-header-custom {
+            background-color: #e9ecef;
+            padding: 10px 20px;
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .split-screen { display: flex; gap: 20px; padding: 20px; }
+        .split-box { flex: 1; }
+        .scan-img { max-width: 100%; height: auto; border: 1px solid #ccc; border-radius: 8px; }
+        textarea.form-control { height: 100%; min-height: 300px; resize: vertical; }
+    </style>
+</head>
+<body>
+    <div class="container mt-5">
+        <h2 class="mb-4 text-center">Проверка бланков с развернутым ответом</h2>
+        
+        <div class="card p-4 shadow-sm mb-5 text-center">
+            <h5 class="mb-3">Загрузить работы на проверку</h5>
+            <input type="file" id="fileInput" class="form-control mb-3 w-50 mx-auto" multiple accept=".tif,.tiff,.jpg,.png">
+            <button class="btn btn-primary btn-lg" onclick="uploadFiles()">Отправить </button>
+        </div>
+
+        <div id="feedContainer"></div>
+    </div>
+
+    <script>
+        async function uploadFiles() {
+            const fileInput = document.getElementById('fileInput');
+            const files = fileInput.files;
+            if (files.length === 0) return alert("Выберите хотя бы один файл!");
+
+            const feedContainer = document.getElementById('feedContainer');
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const formData = new FormData();
+                formData.append("file", file);
+
+                const uiId = 'doc_' + Math.random().toString(36).substr(2, 9);
+                
+                const cardHtml = `
+                    <div id="${uiId}" class="document-card">
+                        <div class="card-header-custom">
+                            <span>📄 ${file.name}</span>
+                            <span id="badge_${uiId}" class="badge bg-warning text-dark">Загрузка на сервер...</span>
+                        </div>
+                        <div id="content_${uiId}" class="split-screen" style="display: none;">
+                            <div class="split-box">
+                                <h6 class="text-muted">Оригинал бланка</h6>
+                                <img id="img_${uiId}" class="scan-img" src="" alt="Скан">
+                            </div>
+                            <div class="split-box d-flex flex-column">
+                                <h6 class="text-muted">Распознанный ответ</h6>
+                                <textarea id="text_${uiId}" class="form-control mb-3"></textarea>
+                                <button class="btn btn-success" onclick="alert('Результат сохранен в базу!')">Сохранить правки</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                feedContainer.insertAdjacentHTML('beforeend', cardHtml);
+
+                try {
+                    const response = await fetch('/api/upload', { method: 'POST', body: formData });
+                    const result = await response.json();
+                    
+                    if (response.ok) {
+                        const dbDocId = result.document_id;
+                        document.getElementById(`badge_${uiId}`).className = 'badge bg-info';
+                        document.getElementById(`badge_${uiId}`).innerText = `В очереди (ID: ${dbDocId})...`;
+                        
+                        startPolling(dbDocId, uiId);
+                    } else {
+                        document.getElementById(`badge_${uiId}`).className = 'badge bg-danger';
+                        document.getElementById(`badge_${uiId}`).innerText = 'Ошибка загрузки';
+                    }
+                } catch (error) {
+                    document.getElementById(`badge_${uiId}`).className = 'badge bg-danger';
+                    document.getElementById(`badge_${uiId}`).innerText = 'Ошибка сети';
+                }
+            }
+            
+            fileInput.value = '';
+        }
+
+        function startPolling(dbDocId, uiId) {
+            const checkInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/status/${dbDocId}`);
+                    const result = await response.json();
+
+                    if (result.status === "SUCCESS") {
+                        clearInterval(checkInterval);
+                        
+                        const badge = document.getElementById(`badge_${uiId}`);
+                        badge.className = 'badge bg-success';
+                        badge.innerText = 'Готово к проверке';
+
+                        document.getElementById(`content_${uiId}`).style.display = 'flex';
+                        
+                        document.getElementById(`img_${uiId}`).src = `/api/image/${dbDocId}`;
+                        document.getElementById(`text_${uiId}`).value = result.text;
+                    } else if (result.status === "ERROR") {
+                        clearInterval(checkInterval);
+                        document.getElementById(`badge_${uiId}`).className = 'badge bg-danger';
+                        document.getElementById(`badge_${uiId}`).innerText = 'Ошибка распознавания';
+                    }
+                } catch (error) {
+                    console.error("Ошибка опроса статуса:", error);
+                }
+            }, 3000);
+        }
+    </script>
+</body>
+</html>
