@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"log"
+	"os"
 
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -12,7 +13,12 @@ var RabbitChannel *amqp.Channel
 
 func InitRabbitMQ() {
 	var err error
-	RabbitConn, err = amqp.Dial("amqp://guest:guest@localhost:5672/")
+		host := os.Getenv("RABBITMQ_HOST")
+	if host == "" {
+		host = "localhost"
+	}
+	url := fmt.Sprintf("amqp://guest:guest@%s:5672/", host)
+	RabbitConn, err = amqp.Dial(url)
 	if err != nil {
 		log.Fatal("[!] Ошибка RabbitMQ: ", err)
 	}
